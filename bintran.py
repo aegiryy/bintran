@@ -115,6 +115,8 @@ class Elf32(object):
             entries.sort(key=sort_key)
         # update sh
         sh.sh_size += sizeof(entry)
+        # update section header table offset
+        self.ehdr.e_shoff += sizeof(entry)
         # do it
         entries = (len(entries) * type(entry))(*entries)
         binary = str(self)
