@@ -100,7 +100,7 @@ class Elf32(object):
         return insns
 
     def insert(self, off_in_text, payload=''):
-        '''insert a sequence of instructions to off_in_text'''
+        '''insert a sequence of instructions at off_in_text'''
         assert self.ehdr.e_type == 1, 'not an object file?'
         _text = self('.text')
         assert _text, 'no .text section?'
@@ -125,7 +125,10 @@ class Elf32(object):
                 target = cia + len(instn) + self[_text.sh_offset+opnd_text_off, ctype]
                 target += len(payload) if target >= off_in_text else 0
                 cia += len(payload) if cia >= off_in_text else 0
-                self[_text.sh_offset+opnd_text_off, ctype] = target - cia - len(instn)
+                new_off = target - cia - len(instn)
+                assert -(1 << (opnd_size * 8 - 1)) <= new_off < 1 << (opnd_size * 8 - 1),\
+                        'operand at 0x%x may overflow' % cia
+                self[_text.sh_offset+opnd_text_off, ctype] = new_off
         # update relocation entries
         for sh in self.shdrs:
             if sh.sh_type != 9: # SHT_REL
@@ -144,7 +147,7 @@ class Elf32(object):
         for s in syms:
             if s.st_shndx != 1: # [1] .text
                 continue
-            if s.st_value >= off_in_text:
+            if s.st_value > off_in_text:
                 s.st_value += len(payload)
             elif s.st_value <= off_in_text < s.st_value + s.st_size:
                 s.st_size += len(payload)
