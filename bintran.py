@@ -114,18 +114,18 @@ class Elf32(object):
             r = re.search(r'([0-9a-f]+):\s*(([0-9a-f]{2} )+)', l)
             if not r: # skip function start like <foo>:
                 continue
-            cia, instn = int(r.group(1), 16), r.group(2).replace(' ', '').decode('hex')
-            opnd_size = 1 if len(instn) - 1 <= 2 else 2 if len(instn) - 2 <= 2 else 4
-            opnd_text_off = cia + len(instn) - opnd_size
+            cia, insn = int(r.group(1), 16), r.group(2).replace(' ', '').decode('hex')
+            opnd_size = 1 if len(insn) - 1 <= 2 else 2 if len(insn) - 2 <= 2 else 4
+            opnd_text_off = cia + len(insn) - opnd_size
             for r in self('.rel.text', Elf32_Rel):
                 if opnd_text_off == r.r_offset: # skip relocation entries
                     break
             else: # a real direct CALL/JMP
                 ctype = {1: c_int8, 2: c_int16, 4: c_int}[opnd_size]
-                target = cia + len(instn) + self[_text.sh_offset+opnd_text_off, ctype]
+                target = cia + len(insn) + self[_text.sh_offset+opnd_text_off, ctype]
                 target += len(payload) if target >= off_in_text else 0
                 cia += len(payload) if cia >= off_in_text else 0
-                new_off = target - cia - len(instn)
+                new_off = target - cia - len(insn)
                 assert -(1 << (opnd_size * 8 - 1)) <= new_off < 1 << (opnd_size * 8 - 1),\
                         'operand at 0x%x may overflow' % cia
                 self[_text.sh_offset+opnd_text_off, ctype] = new_off
