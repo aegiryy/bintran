@@ -85,7 +85,7 @@ def protect_switch(elf):
 
 def ret_to_jmp(elf):
     '''rewrite "ret" with "add $4, %esp; jmp *-4(%esp);'''
-    rets = filter(None, [i.address if i.bytes == '\xc3' else 0 for i in elf.disasm()])
+    rets = [i.address for i in filter(lambda i: i.bytes == '\xc3', elf.disasm())]
     print '  %d RETs found' % len(rets)
     rets.reverse()
     for r in rets:
