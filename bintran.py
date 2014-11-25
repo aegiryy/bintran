@@ -166,6 +166,6 @@ class Elf32(object):
             sh.sh_offset += len(payload)
         # update binary
         binary = str(self)
-        self.binary = bytearray(''.join((binary[:_text.sh_offset+off_in_text],
-                                         payload,
-                                         binary[_text.sh_offset+off_in_text:])))
+        self.__init__(''.join((binary[:_text.sh_offset+off_in_text],
+                               payload,
+                               binary[_text.sh_offset+off_in_text:])))
