@@ -5,7 +5,15 @@ import re
 from uuid import uuid4
 from ctypes import *
 
-GCCPREFIX = os.environ.get('GCCPREFIX', '')
+class Insn(object):
+    def __init__(self, address, bytes, mnemonic, op_str):
+        self.address = address
+        self.bytes = bytes
+        self.mnemonic = mnemonic
+        self.op_str = op_str
+
+    def __len__(self):
+        return len(self.bytes)
 
 class Elf32_Ehdr(Structure):
     _fields_ = [
@@ -95,7 +103,17 @@ class Elf32(object):
         tmpfile = '.%s.o' % uuid4()
         with open(tmpfile, 'wb') as f:
             f.write(str(self))
-        insns = os.popen('%sobjdump -d %s' % (GCCPREFIX, tmpfile)).readlines()
+        insns = []
+        for l in os.popen('%sobjdump -d %s' % (os.environ.get('GCCPREFIX', ''), tmpfile)):
+            r = re.search(r'([0-9a-f]+):\s*(([0-9a-f]{2} )+)\s*([a-z]*)\s*([^\s]*)', l)
+            if not r:
+                continue
+            ad, bs = int(r.group(1), 16), r.group(2).replace(' ', '').decode('hex')
+            mn, op = r.group(4), r.group(5)
+            if not mn:
+                insns[-1].bytes += bs
+            else:
+                insns.append(Insn(ad, bs, mn, op))
         os.unlink(tmpfile)
         return insns
 
@@ -109,27 +127,24 @@ class Elf32(object):
         syms = self('.symtab', Elf32_Sym)
         # update .text section
         updts = {}
-        for l in self.disasm():
-            r = re.search(r'(?<=<)[^>]*', l)
-            if not r: # a possible direct CALL/JMP
-                continue
-            r = re.search(r'([0-9a-f]+):\s*(([0-9a-f]{2} )+)', l)
-            if not r: # skip function start like <foo>:
-                continue
-            cia, insn = int(r.group(1), 16), r.group(2).replace(' ', '').decode('hex')
-            opnd_size = 1 if len(insn) == 2 else 4
-            opnd_text_off = cia + len(insn) - opnd_size
+        for i in self.disasm():
+            if i.mnemonic != 'call' and not i.mnemonic.startswith('j'):
+                continue # filter out non control transfer instructions
+            if i.op_str.startswith('*'):
+                continue # filter out indirect control transfers
+            opnd_size = 1 if len(i) == 2 else 4
+            opnd_text_off = i.address + len(i) - opnd_size
             for r in self('.rel.text', Elf32_Rel):
                 if opnd_text_off == r.r_offset: # skip relocation entries
                     break
             else: # a real direct CALL/JMP
                 ctype = {1: c_int8, 4: c_int}[opnd_size]
-                tgt = cia + len(insn) + self[_text.sh_offset+opnd_text_off, ctype]
-                new_tgt = tgt + (len(payload) if tgt >= off_in_text else 0)
-                new_cia = cia + (len(payload) if cia >= off_in_text else 0)
-                new_off = new_tgt - new_cia - len(insn)
+                tgt = i.address + len(i) + self[_text.sh_offset+opnd_text_off, ctype]
+                tgt += len(payload) if tgt >= off_in_text else 0
+                iaddr = i.address + (len(payload) if i.address >= off_in_text else 0)
+                new_off = tgt - iaddr - len(i)
                 assert -(1 << (opnd_size * 8 - 1)) <= new_off < 1 << (opnd_size * 8 - 1),\
-                        'operand at 0x%x may overflow' % cia
+                        'operand at 0x%x may overflow' % i.address
                 updts[_text.sh_offset+opnd_text_off, ctype] = new_off
         for k, v in updts.items(): # update CALL/JMP operands if reach here
             self[k] = v
