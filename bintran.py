@@ -107,6 +107,7 @@ class Elf32(object):
         assert addressof(_text) == addressof(self.shdrs[1]), '.text index is not 1?'
         syms = self('.symtab', Elf32_Sym)
         # update .text section
+        updts = {}
         for l in self.disasm():
             r = re.search(r'(?<=<)[^>]*', l)
             if not r: # a possible direct CALL/JMP
@@ -115,7 +116,7 @@ class Elf32(object):
             if not r: # skip function start like <foo>:
                 continue
             cia, insn = int(r.group(1), 16), r.group(2).replace(' ', '').decode('hex')
-            opnd_size = 1 if len(insn) - 1 <= 2 else 2 if len(insn) - 2 <= 2 else 4
+            opnd_size = 1 if len(insn) == 2 else 4
             opnd_text_off = cia + len(insn) - opnd_size
             for r in self('.rel.text', Elf32_Rel):
                 if opnd_text_off == r.r_offset: # skip relocation entries
@@ -128,7 +129,9 @@ class Elf32(object):
                 new_off = target - cia - len(insn)
                 assert -(1 << (opnd_size * 8 - 1)) <= new_off < 1 << (opnd_size * 8 - 1),\
                         'operand at 0x%x may overflow' % cia
-                self[_text.sh_offset+opnd_text_off, ctype] = new_off
+                updts[_text.sh_offset+opnd_text_off, ctype] = new_off
+        for k, v in updts.items(): # update CALL/JMP operands if reach here
+            self[k] = v
         # update relocation entries
         for sh in self.shdrs:
             if sh.sh_type != 9: # SHT_REL
