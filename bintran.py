@@ -101,6 +101,7 @@ class Elf32(object):
 
     def insert(self, off_in_text, payload=''):
         '''insert a sequence of instructions at off_in_text'''
+        assert off_in_text > 0, 'prepend is not allowed'
         assert self.ehdr.e_type == 1, 'not an object file?'
         _text = self('.text')
         assert _text, 'no .text section?'
@@ -150,7 +151,7 @@ class Elf32(object):
         for s in syms:
             if s.st_shndx != 1: # [1] .text
                 continue
-            if s.st_value > off_in_text:
+            if s.st_value >= off_in_text:
                 s.st_value += len(payload)
             elif s.st_value <= off_in_text < s.st_value + s.st_size:
                 s.st_size += len(payload)
