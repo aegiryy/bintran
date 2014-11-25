@@ -122,11 +122,11 @@ class Elf32(object):
                 if opnd_text_off == r.r_offset: # skip relocation entries
                     break
             else: # a real direct CALL/JMP
-                ctype = {1: c_int8, 2: c_int16, 4: c_int}[opnd_size]
-                target = cia + len(insn) + self[_text.sh_offset+opnd_text_off, ctype]
-                target += len(payload) if target >= off_in_text else 0
-                cia += len(payload) if cia >= off_in_text else 0
-                new_off = target - cia - len(insn)
+                ctype = {1: c_int8, 4: c_int}[opnd_size]
+                tgt = cia + len(insn) + self[_text.sh_offset+opnd_text_off, ctype]
+                new_tgt = tgt + (len(payload) if tgt >= off_in_text else 0)
+                new_cia = cia + (len(payload) if cia >= off_in_text else 0)
+                new_off = new_tgt - new_cia - len(insn)
                 assert -(1 << (opnd_size * 8 - 1)) <= new_off < 1 << (opnd_size * 8 - 1),\
                         'operand at 0x%x may overflow' % cia
                 updts[_text.sh_offset+opnd_text_off, ctype] = new_off
