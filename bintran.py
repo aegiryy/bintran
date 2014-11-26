@@ -106,6 +106,9 @@ class Elf32(object):
             if s.sh_offset <= sh.sh_offset:
                 continue
             s.sh_offset += sizeof(entry)
+        # update section header table offset
+        if self.ehdr.e_shoff > sh.sh_offset:
+            self.ehdr.e_shoff += sizeof(entry)
         # load entries
         entries = (sh.sh_size/sizeof(entry) * type(entry)).from_buffer(self.binary, sh.sh_offset)
         entries = list(entries)
@@ -115,9 +118,6 @@ class Elf32(object):
             entries.sort(key=sort_key)
         # update sh
         sh.sh_size += sizeof(entry)
-        # update section header table offset
-        if self.ehdr.e_shoff > sh.sh_offset:
-            self.ehdr.e_shoff += sizeof(entry)
         # do it
         entries = (len(entries) * type(entry))(*entries)
         binary = str(self)

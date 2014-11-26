@@ -113,7 +113,10 @@ def add_nop(elf):
 if __name__ == '__main__':
     if len(sys.argv) < 3:
         print ('usage: test.py [option] xxx.o\n'
-               '  opt: protect_switch, ret_to_jmp, add_nop')
+               '  call_to_jmp: rewrite CALL to PUSH and JMP\n'
+               '  protect_switch: add check before jump table indexing\n'
+               '  ret_to_jmp: rewrite RET to POP and JMP\n'
+               '  add_nop: add NOP after every instruction')
         sys.exit(0)
     test = globals().get(sys.argv[1])
     assert test, 'unrecognized test %s' % sys.argv[1]
