@@ -3,13 +3,36 @@ import sys
 import os
 import re
 from bintran import Elf32, Elf32_Rel, Elf32_Sym
+from uuid import uuid4
+from ctypes import *
+
+def call_to_jmp(elf):
+    syms = elf('.symtab', Elf32_Sym)
+    for ndx in range(len(syms)):
+        if syms[ndx].st_info & 0xf == 3 and syms[ndx].st_shndx == 1:
+            break # found symbol of STT_SECTION for .text
+    else:
+        assert False, 'no symbol for .text section'
+    calls = filter(lambda i: i.mnemonic == 'call' and i.bytes.startswith('\xe8'), elf.disasm())
+    print '  %d CALLs found' % len(calls)
+    calls.reverse()
+    for i in calls:
+        r = Elf32_Rel(i.address+1, (ndx<<8)+1)
+        try:
+            elf.insert(i.address, '\x68%s' % string_at(pointer(c_uint(i.address+10)), 4))
+            elf.addent(elf('.rel.text'), r, lambda r: r.r_offset)
+            elf[elf('.text').sh_offset+i.address+5] = '\xe9'
+        except AssertionError, ae:
+            print ' ', ae
+            continue
+    return elf
 
 def protect_switch(elf):
     '''add checks before jmp *table(,%reg,4)'''
-    from ctypes import sizeof
-    from uuid import uuid4
     syms = elf('.symtab', Elf32_Sym)
-    for i in elf.disasm():
+    insns = elf.disasm()
+    insns.reverse()
+    for i in insns:
         if i.mnemonic != 'jmp':
             continue
         r = re.search(r'\*(.*)\(,%(.*),4\)', i.op_str)
