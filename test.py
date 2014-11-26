@@ -112,18 +112,18 @@ def add_nop(elf):
 
 if __name__ == '__main__':
     if len(sys.argv) < 3:
-        print ('usage: test.py [option] xxx.o\n'
+        print ('usage: test.py [option+option+..] xxx.o\n'
                '  call_to_jmp: rewrite CALL to PUSH and JMP\n'
                '  protect_switch: add check before jump table indexing\n'
                '  ret_to_jmp: rewrite RET to POP and JMP\n'
                '  add_nop: add NOP after every instruction')
         sys.exit(0)
-    test = globals().get(sys.argv[1])
-    assert test, 'unrecognized test %s' % sys.argv[1]
+    tests = [globals()[t] for t in sys.argv[1].split('+')]
     for objfile in sys.argv[2:]:
         print '%s' % objfile
         with open(objfile, 'rb') as f:
-            binary = f.read()
-        elf = test(Elf32(binary))
+            elf = Elf32(f.read())
+        for t in tests:
+            elf = t(elf)
         with open(objfile, 'wb') as f:
             f.write(str(elf))
