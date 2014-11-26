@@ -99,6 +99,29 @@ class Elf32(object):
             return (sh.sh_size/sizeof(ctype) * ctype).from_buffer(self.binary, sh.sh_offset)
         return None if ctype is None else []
 
+    def addent(self, sh, entry, sort_key=None):
+        '''add an entry into a section (e.g., relocation section)'''
+        # update later sections
+        for s in self.shdrs:
+            if s.sh_offset <= sh.sh_offset:
+                continue
+            s.sh_offset += sizeof(entry)
+        # load entries
+        entries = (sh.sh_size/sizeof(entry) * type(entry)).from_buffer(self.binary, sh.sh_offset)
+        entries = list(entries)
+        entries.append(entry)
+        # sort if required
+        if sort_key:
+            entries.sort(key=sort_key)
+        # update sh
+        sh.sh_size += sizeof(entry)
+        # do it
+        entries = (len(entries) * type(entry))(*entries)
+        binary = str(self)
+        self.__init__(''.join((binary[:sh.sh_offset],
+                               string_at(entries, sizeof(entries)),
+                               binary[sh.sh_offset+sh.sh_size-sizeof(entry):])))
+
     def disasm(self):
         tmpfile = '.%s.o' % uuid4()
         with open(tmpfile, 'wb') as f:
@@ -119,7 +142,6 @@ class Elf32(object):
 
     def insert(self, off_in_text, payload=''):
         '''insert a sequence of instructions at off_in_text'''
-        assert off_in_text > 0, 'prepend is not allowed'
         assert self.ehdr.e_type == 1, 'not an object file?'
         _text = self('.text')
         assert _text, 'no .text section?'
@@ -140,7 +162,7 @@ class Elf32(object):
             else: # a real direct CALL/JMP
                 ctype = {1: c_int8, 4: c_int}[opnd_size]
                 tgt = i.address + len(i) + self[_text.sh_offset+opnd_text_off, ctype]
-                tgt += len(payload) if tgt >= off_in_text else 0
+                tgt += len(payload) if tgt > off_in_text else 0
                 iaddr = i.address + (len(payload) if i.address >= off_in_text else 0)
                 new_off = tgt - iaddr - len(i)
                 assert -(1 << (opnd_size * 8 - 1)) <= new_off < 1 << (opnd_size * 8 - 1),\
@@ -157,7 +179,7 @@ class Elf32(object):
                 s = syms[r.r_info>>8]
                 if r.r_info & 0xff == 1 and s.st_info & 0xf == 3 and s.st_shndx == 1: # R_386_32 and .text
                     addend = self[self.shdrs[sh.sh_info].sh_offset+r.r_offset, c_uint]
-                    if addend >= off_in_text:
+                    if addend > off_in_text:
                         self[self.shdrs[sh.sh_info].sh_offset+r.r_offset, c_uint] = addend + len(payload)
                 if sh.sh_info == 1: # update offsets of relocation entries in .text section
                     if r.r_offset >= off_in_text:
@@ -166,7 +188,7 @@ class Elf32(object):
         for s in syms:
             if s.st_shndx != 1: # [1] .text
                 continue
-            if s.st_value >= off_in_text:
+            if s.st_value > off_in_text:
                 s.st_value += len(payload)
             elif s.st_value <= off_in_text < s.st_value + s.st_size:
                 s.st_size += len(payload)
