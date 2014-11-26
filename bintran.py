@@ -116,7 +116,8 @@ class Elf32(object):
         # update sh
         sh.sh_size += sizeof(entry)
         # update section header table offset
-        self.ehdr.e_shoff += sizeof(entry)
+        if self.ehdr.e_shoff > sh.sh_offset:
+            self.ehdr.e_shoff += sizeof(entry)
         # do it
         entries = (len(entries) * type(entry))(*entries)
         binary = str(self)
