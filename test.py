@@ -6,6 +6,89 @@ from bintran import Elf32, Elf32_Rel, Elf32_Sym
 from uuid import uuid4
 from ctypes import *
 
+def short_jmp_to_near(elf):
+    new_iaddr = lambda addr: addr + sum([0 if j.address >= addr else \
+            3 if j.bytes.startswith('\xeb') else 4 \
+            for j in sjs])
+    new_insn = lambda i, new_off: ('\xe9' if i.bytes[0] == '\xeb' else \
+            ('\x0f%s' % chr(ord(i.bytes[0])+0x10)))\
+            + string_at(pointer(c_int(new_off)), 4)
+    sjs = filter(lambda i: i.mnemonic.startswith('j') and \
+            i.op_str[0] != '*' and \
+            len(i.bytes) == 2, elf.disasm())
+    print '  %d short JMPs' % len(sjs)
+    if not sjs:
+        return elf
+    assert not filter(lambda i: i.mnemonic in ('jcxz', 'jecxz'), sjs),\
+            'JCXZ and JECXZ are unsupported'
+    _text = elf('.text')
+    syms = elf('.symtab', Elf32_Sym)
+    # update .text section
+    updts = []
+    for i in elf.disasm():
+        if i.mnemonic != 'call' and not i.mnemonic.startswith('j'):
+            continue # filter out non control transfer instructions
+        if i.op_str.startswith('*'):
+            continue # filter out indirect control transfers
+        opnd_size = 1 if len(i) == 2 else 4
+        opnd_text_off = i.address + len(i) - opnd_size
+        for r in elf('.rel.text', Elf32_Rel):
+            if opnd_text_off == r.r_offset: # skip relocation entries
+                break
+        else: # a real direct CALL/JMP
+            if opnd_size == 4: # a near JMP
+                tgt = i.address + len(i) + elf[_text.sh_offset+opnd_text_off, c_int]
+                tgt = new_iaddr(tgt)
+                iaddr = new_iaddr(i.address)
+                new_off = tgt - iaddr - len(i)
+                elf[_text.sh_offset+opnd_text_off, c_int] = new_off
+            else: # a short JMP
+                tgt = i.address + len(i) + elf[_text.sh_offset+opnd_text_off, c_int8]
+                tgt = new_iaddr(tgt)
+                iaddr = new_iaddr(i.address)
+                new_len = 5 if i.bytes.startswith('\xeb') else 6
+                new_off = tgt - iaddr - new_len
+                updts.append((i, new_off))
+    assert len(updts) == len(sjs), 'miss any short JMP?'
+    # update relocation entries
+    for sh in elf.shdrs:
+        if sh.sh_type != 9: # SHT_REL
+            continue
+        rels = (sh.sh_size/sizeof(Elf32_Rel) * Elf32_Rel).from_buffer(elf.binary, sh.sh_offset)
+        for r in rels:
+            s = syms[r.r_info>>8]
+            if r.r_info & 0xff == 1 and s.st_info & 0xf == 3 and s.st_shndx == 1: # R_386_32 and .text
+                addend = elf[elf.shdrs[sh.sh_info].sh_offset+r.r_offset, c_uint]
+                elf[elf.shdrs[sh.sh_info].sh_offset+r.r_offset, c_uint] = new_iaddr(addend)
+            if sh.sh_info == 1: # update offsets of relocation entries in .text section
+                r.r_offset = new_iaddr(r.r_offset)
+    # update symbols of .text section
+    for s in syms:
+        if s.st_shndx != 1: # [1] .text
+            continue
+        s.st_value = new_iaddr(s.st_value)
+        s.st_size = 0 # set it to be unknown
+    # update section header table offset
+    elf.ehdr.e_shoff += new_iaddr(_text.sh_size) - _text.sh_size
+    # update later sections
+    for sh in elf.shdrs:
+        if sh.sh_offset <= _text.sh_offset:
+            continue
+        sh.sh_offset += new_iaddr(_text.sh_size) - _text.sh_size
+    # update text section header
+    _text.sh_size = new_iaddr(_text.sh_size)
+    # update binary
+    binary = str(elf)
+    pieces = []
+    for i in range(len(sjs)):
+        start = 0 if i == 0 else (_text.sh_offset + sjs[i-1].address + len(sjs[i-1].bytes))
+        end = _text.sh_offset + sjs[i].address
+        insn = new_insn(*updts[i])
+        pieces.append(binary[start:end] + insn)
+    pieces.append(binary[_text.sh_offset+sjs[-1].address+len(sjs[-1].bytes):])
+    elf.__init__(''.join(pieces))
+    return elf
+
 def call_to_jmp(elf):
     syms = elf('.symtab', Elf32_Sym)
     for ndx in range(len(syms)):
@@ -113,6 +196,7 @@ def add_nop(elf):
 if __name__ == '__main__':
     if len(sys.argv) < 3:
         print ('usage: test.py [option+option+..] xxx.o\n'
+               '  short_jmp_to_near: rewrite all short JMPs to near JMPs\n'
                '  call_to_jmp: rewrite CALL to PUSH and JMP\n'
                '  protect_switch: add check before jump table indexing\n'
                '  ret_to_jmp: rewrite RET to POP and JMP\n'
