@@ -99,8 +99,8 @@ class Elf32(object):
             return (sh.sh_size/sizeof(ctype) * ctype).from_buffer(self.binary, sh.sh_offset)
         return None if ctype is None else []
 
-    def add_section(self, content, sh_name, sh_type=0, sh_flags=0, sh_link=0, sh_info=0, sh_addralign=1, sh_entsize=0):
-        '''add a section'''
+    def add_section(self, sh_name, sh_type=0, sh_flags=0, sh_link=0, sh_info=0, sh_addralign=1, sh_entsize=0):
+        '''add an empty section'''
         stndx = self('.shstrtab').sh_size
         # add section name into shstrtab
         for c in sh_name:
@@ -114,25 +114,19 @@ class Elf32(object):
                 s.sh_offset += sizeof(Elf32_Shdr)
         # figure out offset and size
         last_shdr = max(self.shdrs, key=lambda sh: sh.sh_offset)
+        assert last_shdr.sh_size > 0, 'continuously adding empty sections is not allowed'
         sh_offset = last_shdr.sh_offset + last_shdr.sh_size
-        sh_size = len(content)
-        assert sh_size > 0, 'empty content?'
+        sh_size = 0
         # create section header
         sh = Elf32_Shdr(stndx, sh_type, sh_flags, 0, sh_offset, sh_size, sh_link, sh_info, sh_addralign, sh_entsize)
         # update elf header
         self.ehdr.e_shnum += 1
         # prepare insertions
-        ins = []
-        ins.append((self.ehdr.e_shoff + self.ehdr.e_shentsize * (self.ehdr.e_shnum - 1),\
-                string_at(pointer(sh), sizeof(sh))))
-        ins.append((sh.sh_offset, content))
-        ins.sort()
+        sep = self.ehdr.e_shoff + self.ehdr.e_shentsize * (self.ehdr.e_shnum - 1)
         binary = str(self)
-        self.__init__(''.join((binary[:ins[0][0]],\
-                               ins[0][1],
-                               binary[ins[0][0]:ins[1][0]],
-                               ins[1][1],
-                               binary[ins[1][0]:])))
+        self.__init__(''.join((binary[:sep],
+                               string_at(pointer(sh), sizeof(sh)),
+                               binary[sep:])))
 
     def add_entry(self, sh, entry, sort_key=None):
         '''add an entry into a section (e.g., relocation section)'''

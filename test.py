@@ -2,7 +2,7 @@
 import sys
 import os
 import re
-from bintran import Elf32, Elf32_Rel, Elf32_Sym
+from bintran import Elf32, Elf32_Rel, Elf32_Sym, Elf32_Shdr
 from uuid import uuid4
 from ctypes import *
 
@@ -107,14 +107,9 @@ def call_to_jmp(elf):
             push = '\x68%s' % string_at(pointer(c_uint(i.address+5+len(i.bytes))), 4)
             elf.insert(i.address, push)
             if not elf('.rel.text'):
-                elf.add_section(string_at(pointer(r), sizeof(r)),\
-                        '.rel.text',
-                        sh_type = 9, # SHT_REL
-                        sh_info = 1, # .text
-                        sh_entsize = sizeof(r),
+                elf.add_section('.rel.text', sh_type = 9, sh_info = 1, sh_entsize = sizeof(r),
                         sh_link = (addressof(elf('.symtab')) - addressof(elf.shdrs)) / sizeof(Elf32_Shdr))
-            else:
-                elf.add_entry(elf('.rel.text'), r, lambda r: r.r_offset)
+            elf.add_entry(elf('.rel.text'), r, lambda r: r.r_offset)
             text_offset = elf('.text').sh_offset
             if elf[text_offset+i.address+len(push)] == '\xe8': # direct CALL
                 elf[text_offset+i.address+len(push)] = '\xe9'
