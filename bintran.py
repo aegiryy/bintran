@@ -103,9 +103,8 @@ class Elf32(object):
         '''add an empty section'''
         stndx = self('.shstrtab').sh_size
         # add section name into shstrtab
-        for c in sh_name:
+        for c in '%s\x00' % sh_name:
             self.add_entry(self('.shstrtab'), c_char(c))
-        self.add_entry(self('.shstrtab'), c_char('\x00'))
         # update later sections
         for s in self.shdrs:
             if s.sh_offset <= self.ehdr.e_shoff:
