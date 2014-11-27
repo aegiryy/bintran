@@ -214,7 +214,7 @@ class Elf32(object):
         for s in syms:
             if s.st_shndx != 1: # [1] .text
                 continue
-            s.st_value = new_iaddr(s.st_value)
+            s.st_value = new_target(s.st_value)
             s.st_size = 0
         # calculate number of additional bytes
         _text = self('.text')
@@ -237,12 +237,11 @@ class Elf32(object):
         new_iaddr = lambda iaddr: iaddr + (len(payload) if iaddr >= off_in_text else 0)
         # a branch to off_in_text will now jump to the inserted instructions
         new_target = lambda tgt: tgt + (len(payload) if tgt > off_in_text else 0)
+        # update .text section in place
         bups = self._branch_updates(new_iaddr, new_target)
-        # test short JMP overflow
         overflows = filter(lambda b: not -1 << sizeof(b['ctype']) * 8 - 1 <=
                 b['new_off'] < 1 << sizeof(b['ctype']) * 8 - 1, bups)
         assert not overflows, 'a short JMP overflows'
-        # update .text section in place
         for bu in bups:
             opnd_off = _text.sh_offset + bu['i'].address + len(bu['i']) - sizeof(bu['ctype'])
             self[opnd_off, bu['ctype']] = bu['new_off']
