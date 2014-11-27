@@ -99,7 +99,42 @@ class Elf32(object):
             return (sh.sh_size/sizeof(ctype) * ctype).from_buffer(self.binary, sh.sh_offset)
         return None if ctype is None else []
 
-    def addent(self, sh, entry, sort_key=None):
+    def add_section(self, content, sh_name, sh_type=0, sh_flags=0, sh_link=0, sh_info=0, sh_addralign=1, sh_entsize=0):
+        '''add a section'''
+        stndx = self('.shstrtab').sh_size
+        # add section name into shstrtab
+        for c in sh_name:
+            self.add_entry(self('.shstrtab'), c_char(c))
+        self.add_entry(self('.shstrtab'), c_char('\x00'))
+        # update later sections
+        for s in self.shdrs:
+            if s.sh_offset <= self.ehdr.e_shoff:
+                continue
+            else:
+                s.sh_offset += sizeof(Elf32_Shdr)
+        # figure out offset and size
+        last_shdr = max(self.shdrs, key=lambda sh: sh.sh_offset)
+        sh_offset = last_shdr.sh_offset + last_shdr.sh_size
+        sh_size = len(content)
+        assert sh_size > 0, 'empty content?'
+        # create section header
+        sh = Elf32_Shdr(stndx, sh_type, sh_flags, 0, sh_offset, sh_size, sh_link, sh_info, sh_addralign, sh_entsize)
+        # update elf header
+        self.ehdr.e_shnum += 1
+        # prepare insertions
+        ins = []
+        ins.append((self.ehdr.e_shoff + self.ehdr.e_shentsize * (self.ehdr.e_shnum - 1),\
+                string_at(pointer(sh), sizeof(sh))))
+        ins.append((sh.sh_offset, content))
+        ins.sort()
+        binary = str(self)
+        self.__init__(''.join((binary[:ins[0][0]],\
+                               ins[0][1],
+                               binary[ins[0][0]:ins[1][0]],
+                               ins[1][1],
+                               binary[ins[1][0]:])))
+
+    def add_entry(self, sh, entry, sort_key=None):
         '''add an entry into a section (e.g., relocation section)'''
         # update later sections
         for s in self.shdrs:
