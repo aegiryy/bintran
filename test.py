@@ -7,6 +7,7 @@ from uuid import uuid4
 from ctypes import *
 
 def short_jmp_to_near(elf):
+    '''convert all short JMPs to near JMPs'''
     new_iaddr = lambda addr: addr + sum([0 if j.address >= addr else \
             3 if j.bytes.startswith('\xeb') else 4 \
             for j in sjs])
@@ -90,21 +91,29 @@ def short_jmp_to_near(elf):
     return elf
 
 def call_to_jmp(elf):
+    '''convert CALL to PUSH and JMP'''
     syms = elf('.symtab', Elf32_Sym)
     for ndx in range(len(syms)):
         if syms[ndx].st_info & 0xf == 3 and syms[ndx].st_shndx == 1:
             break # found symbol of STT_SECTION for .text
     else:
         assert False, 'no symbol for .text section'
-    calls = filter(lambda i: i.mnemonic == 'call' and i.bytes.startswith('\xe8'), elf.disasm())
+    calls = filter(lambda i: i.mnemonic == 'call', elf.disasm())
     print '  %d CALLs found' % len(calls)
     calls.reverse()
     for i in calls:
         r = Elf32_Rel(i.address+1, (ndx<<8)+1)
         try:
-            elf.insert(i.address, '\x68%s' % string_at(pointer(c_uint(i.address+10)), 4))
+            push = '\x68%s' % string_at(pointer(c_uint(i.address+5+len(i.bytes))), 4)
+            elf.insert(i.address, push)
             elf.addent(elf('.rel.text'), r, lambda r: r.r_offset)
-            elf[elf('.text').sh_offset+i.address+5] = '\xe9'
+            text_offset = elf('.text').sh_offset
+            if elf[text_offset+i.address+len(push)] == '\xe8': # direct CALL
+                elf[text_offset+i.address+len(push)] = '\xe9'
+            elif elf[text_offset+i.address+len(push)] == '\xff': # indirect CALL
+                elf[text_offset+i.address+len(push)+1] = chr(ord(elf[text_offset+i.address+len(push)+1]) + 0x10)
+            else:
+                raise Exception('unexpected CALL: %s %s' % (i.mnemonic, i.op_str))
         except AssertionError, ae:
             print ' ', ae
             continue
