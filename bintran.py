@@ -153,6 +153,7 @@ class Elf32(object):
                                binary[sh.sh_offset+sh.sh_size-sizeof(entry):])))
 
     def disasm(self):
+        '''disassemble the current binary'''
         tmpfile = '.%s.o' % uuid4()
         with open(tmpfile, 'wb') as f:
             f.write(str(self))
@@ -170,36 +171,33 @@ class Elf32(object):
         os.unlink(tmpfile)
         return insns
 
-    def insert(self, off_in_text, payload=''):
-        '''insert a sequence of instructions at off_in_text'''
-        assert self.ehdr.e_type == 1, 'not an object file?'
+    def _branch_updates(self, new_iaddr, new_target):
+        '''get branch updates given functions to compute new instruction
+        address and new branch target address'''
         _text = self('.text')
-        assert _text, 'no .text section?'
-        assert addressof(_text) == addressof(self.shdrs[1]), '.text index is not 1?'
-        syms = self('.symtab', Elf32_Sym)
-        # update .text section
-        updts = {}
+        ups = []
         for i in self.disasm():
             if i.mnemonic != 'call' and not i.mnemonic.startswith('j'):
-                continue # filter out non control transfer instructions
+                continue # filter out non branches
             if i.op_str.startswith('*'):
-                continue # filter out indirect control transfers
+                continue # filter out indirect branches
             opnd_size = 1 if len(i) == 2 else 4
             opnd_text_off = i.address + len(i) - opnd_size
             for r in self('.rel.text', Elf32_Rel):
                 if opnd_text_off == r.r_offset: # skip relocation entries
                     break
-            else: # a real direct CALL/JMP
+            else: # a true direct CALL/JMP
                 ctype = {1: c_int8, 4: c_int}[opnd_size]
                 tgt = i.address + len(i) + self[_text.sh_offset+opnd_text_off, ctype]
-                tgt += len(payload) if tgt > off_in_text else 0
-                iaddr = i.address + (len(payload) if i.address >= off_in_text else 0)
+                tgt = new_target(tgt)
+                iaddr = new_iaddr(i.address)
                 new_off = tgt - iaddr - len(i)
-                assert -(1 << (opnd_size * 8 - 1)) <= new_off < 1 << (opnd_size * 8 - 1),\
-                        'operand at 0x%x may overflow' % i.address
-                updts[_text.sh_offset+opnd_text_off, ctype] = new_off
-        for k, v in updts.items(): # update CALL/JMP operands if reach here
-            self[k] = v
+                ups.append(dict(i=i, ctype=ctype, new_off=new_off))
+        return ups
+
+    def _update_misc(self, new_iaddr, new_target):
+        '''update relocations, text symbols, ELF header and section headers'''
+        syms = self('.symtab', Elf32_Sym)
         # update relocation entries
         for sh in self.shdrs:
             if sh.sh_type != 9: # SHT_REL
@@ -209,30 +207,94 @@ class Elf32(object):
                 s = syms[r.r_info>>8]
                 if r.r_info & 0xff == 1 and s.st_info & 0xf == 3 and s.st_shndx == 1: # R_386_32 and .text
                     addend = self[self.shdrs[sh.sh_info].sh_offset+r.r_offset, c_uint]
-                    if addend > off_in_text:
-                        self[self.shdrs[sh.sh_info].sh_offset+r.r_offset, c_uint] = addend + len(payload)
+                    self[self.shdrs[sh.sh_info].sh_offset+r.r_offset, c_uint] = new_target(addend)
                 if sh.sh_info == 1: # update offsets of relocation entries in .text section
-                    if r.r_offset >= off_in_text:
-                        r.r_offset += len(payload)
+                    r.r_offset = new_iaddr(r.r_offset)
         # update symbols of .text section
         for s in syms:
             if s.st_shndx != 1: # [1] .text
                 continue
-            if s.st_value > off_in_text:
-                s.st_value += len(payload)
-            elif s.st_value <= off_in_text < s.st_value + s.st_size:
-                s.st_size += len(payload)
+            s.st_value = new_iaddr(s.st_value)
+            s.st_size = 0
+        # calculate number of additional bytes
+        _text = self('.text')
+        more = new_iaddr(_text.sh_size) - _text.sh_size
         # update section header table offset
-        self.ehdr.e_shoff += len(payload)
+        self.ehdr.e_shoff += more
         # update text section header
-        _text.sh_size += len(payload)
+        _text.sh_size += more
         # update later sections
         for sh in self.shdrs:
             if sh.sh_offset <= _text.sh_offset:
                 continue
-            sh.sh_offset += len(payload)
+            sh.sh_offset += more
+
+    def insert(self, off_in_text, payload=''):
+        '''insert a sequence of instructions at off_in_text'''
+        assert self.ehdr.e_type == 1, 'not an object file?'
+        _text = self('.text')
+        assert _text, 'no .text section?'
+        new_iaddr = lambda iaddr: iaddr + (len(payload) if iaddr >= off_in_text else 0)
+        # a branch to off_in_text will now jump to the inserted instructions
+        new_target = lambda tgt: tgt + (len(payload) if tgt > off_in_text else 0)
+        bups = self._branch_updates(new_iaddr, new_target)
+        # test short JMP overflow
+        overflows = filter(lambda b: not -1 << sizeof(b['ctype']) * 8 - 1 <=
+                b['new_off'] < 1 << sizeof(b['ctype']) * 8 - 1, bups)
+        assert not overflows, 'a short JMP overflows'
+        # update .text section in place
+        for bu in bups:
+            opnd_off = _text.sh_offset + bu['i'].address + len(bu['i']) - sizeof(bu['ctype'])
+            self[opnd_off, bu['ctype']] = bu['new_off']
+        # update relocations, text symbols, ELF header, section headers
+        self._update_misc(new_iaddr, new_target)
         # update binary
         binary = str(self)
         self.__init__(''.join((binary[:_text.sh_offset+off_in_text],
                                payload,
                                binary[_text.sh_offset+off_in_text:])))
+
+    def flatten(self):
+        '''convert all short JMPs to near JMPs'''
+        assert self.ehdr.e_type == 1, 'not an object file?'
+        _text = self('.text')
+        assert _text, 'no .text section?'
+        # collect all short JMPs
+        sjs = filter(lambda i: i.mnemonic.startswith('j') and \
+                i.op_str[0] != '*' and len(i) == 2, self.disasm())
+        if not sjs:
+            return
+        assert not filter(lambda i: i.mnemonic in ('jcxz', 'jecxz'), sjs),\
+                'JCXZ and JECXZ are unsupported' # no way to flatten them
+        # for computing new instruction address according to JMP opcodes
+        new_iaddr = lambda addr: addr + sum([0 if j.address >= addr else \
+                3 if j.bytes[0] == '\xeb' else 4 \
+                for j in sjs])
+        # see http://pdos.csail.mit.edu/6.828/2012/readings/i386/JMP.htm
+        # and http://pdos.csail.mit.edu/6.828/2012/readings/i386/Jcc.htm
+        # for conversion rules
+        new_insn = lambda i, new_off: ('\xe9' if i.bytes[0] == '\xeb' else \
+                ('\x0f%s' % chr(ord(i.bytes[0])+0x10)))\
+                + string_at(pointer(c_int(new_off)), 4)
+        # update .text section
+        ups = []
+        for bu in self._branch_updates(new_iaddr, new_iaddr):
+            if bu['ctype'] == c_int: # near JMP
+                opnd_off = _text.sh_offset + bu['i'].address + len(bu['i']) - sizeof(c_int)
+                self[opnd_off, c_int] = bu['new_off']
+            else: # short JMP
+                bu['new_off'] -= (5 if bu['i'].bytes[0] == '\xeb' else 6) - 2
+                ups.append((bu['i'], bu['new_off']))
+        assert len(ups) == len(sjs), 'miss any short JMP?'
+        # update miscellaneous locations within the object
+        self._update_misc(new_iaddr, new_iaddr)
+        # update binary
+        binary = str(self)
+        pieces = []
+        for i in range(len(sjs)):
+            start = 0 if i == 0 else (_text.sh_offset + sjs[i-1].address + len(sjs[i-1]))
+            end = _text.sh_offset + sjs[i].address
+            insn = new_insn(*ups[i])
+            pieces.append(binary[start:end] + insn)
+        pieces.append(binary[_text.sh_offset+sjs[-1].address+len(sjs[-1]):])
+        self.__init__(''.join(pieces))
