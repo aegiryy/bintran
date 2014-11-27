@@ -9,14 +9,13 @@ from ctypes import *
 def short_jmp_to_near(elf):
     '''convert all short JMPs to near JMPs'''
     new_iaddr = lambda addr: addr + sum([0 if j.address >= addr else \
-            3 if j.bytes.startswith('\xeb') else 4 \
+            3 if j.bytes[0] == '\xeb' else 4 \
             for j in sjs])
     new_insn = lambda i, new_off: ('\xe9' if i.bytes[0] == '\xeb' else \
             ('\x0f%s' % chr(ord(i.bytes[0])+0x10)))\
             + string_at(pointer(c_int(new_off)), 4)
     sjs = filter(lambda i: i.mnemonic.startswith('j') and \
-            i.op_str[0] != '*' and \
-            len(i.bytes) == 2, elf.disasm())
+            i.op_str[0] != '*' and len(i) == 2, elf.disasm())
     print '  %d short JMPs' % len(sjs)
     if not sjs:
         return elf
@@ -47,7 +46,7 @@ def short_jmp_to_near(elf):
                 tgt = i.address + len(i) + elf[_text.sh_offset+opnd_text_off, c_int8]
                 tgt = new_iaddr(tgt)
                 iaddr = new_iaddr(i.address)
-                new_len = 5 if i.bytes.startswith('\xeb') else 6
+                new_len = 5 if i.bytes[0] == '\xeb' else 6
                 new_off = tgt - iaddr - new_len
                 updts.append((i, new_off))
     assert len(updts) == len(sjs), 'miss any short JMP?'
@@ -82,11 +81,11 @@ def short_jmp_to_near(elf):
     binary = str(elf)
     pieces = []
     for i in range(len(sjs)):
-        start = 0 if i == 0 else (_text.sh_offset + sjs[i-1].address + len(sjs[i-1].bytes))
+        start = 0 if i == 0 else (_text.sh_offset + sjs[i-1].address + len(sjs[i-1]))
         end = _text.sh_offset + sjs[i].address
         insn = new_insn(*updts[i])
         pieces.append(binary[start:end] + insn)
-    pieces.append(binary[_text.sh_offset+sjs[-1].address+len(sjs[-1].bytes):])
+    pieces.append(binary[_text.sh_offset+sjs[-1].address+len(sjs[-1]):])
     elf.__init__(''.join(pieces))
     return elf
 
@@ -104,7 +103,7 @@ def call_to_jmp(elf):
     for i in calls:
         r = Elf32_Rel(i.address+1, (ndx<<8)+1)
         try:
-            push = '\x68%s' % string_at(pointer(c_uint(i.address+5+len(i.bytes))), 4)
+            push = '\x68%s' % string_at(pointer(c_uint(i.address+5+len(i))), 4)
             elf.insert(i.address, push)
             if not elf('.rel.text'):
                 elf.add_section('.rel.text', sh_type = 9, sh_info = 1, sh_entsize = sizeof(r),

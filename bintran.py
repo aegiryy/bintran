@@ -111,13 +111,12 @@ class Elf32(object):
                 continue
             else:
                 s.sh_offset += sizeof(Elf32_Shdr)
-        # figure out offset and size
+        # figure out offset for the new section
         last_shdr = max(self.shdrs, key=lambda sh: sh.sh_offset)
         assert last_shdr.sh_size > 0, 'continuously adding empty sections is not allowed'
         sh_offset = last_shdr.sh_offset + last_shdr.sh_size
-        sh_size = 0
-        # create section header
-        sh = Elf32_Shdr(stndx, sh_type, sh_flags, 0, sh_offset, sh_size, sh_link, sh_info, sh_addralign, sh_entsize)
+        # create section header (name, type, flags, addr, offset, size, link, info, addralign, entsize)
+        sh = Elf32_Shdr(stndx, sh_type, sh_flags, 0, sh_offset, 0, sh_link, sh_info, sh_addralign, sh_entsize)
         # update elf header
         self.ehdr.e_shnum += 1
         # prepare insertions
