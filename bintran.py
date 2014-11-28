@@ -201,13 +201,12 @@ class Elf32(object):
                 continue # filter out non branches
             if i.op_str.startswith('*'):
                 continue # filter out indirect branches
-            opnd_size = 1 if len(i) == 2 else 4
-            opnd_text_off = i.address + len(i) - opnd_size
+            ctype = c_int8 if len(i) == 2 else c_int
+            opnd_text_off = i.address + len(i) - sizeof(ctype)
             for r in self('.rel.text', Elf32_Rel):
                 if opnd_text_off == r.r_offset: # skip relocation entries
                     break
             else: # a true direct CALL/JMP
-                ctype = {1: c_int8, 4: c_int}[opnd_size]
                 tgt = i.address + len(i) + self[_text.sh_offset+opnd_text_off, ctype]
                 tgt = new_target(tgt)
                 iaddr = new_iaddr(i.address)
