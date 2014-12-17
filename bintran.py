@@ -35,6 +35,9 @@ class Insn(object):
     def __len__(self):
         return len(self.bytes)
 
+    def __str__(self):
+        return '%x: %s %s' % (self.address, self.mnemonic, self.op_str)
+
 class Elf32_Ehdr(Structure):
     _fields_ = [
             ('e_ident', c_char * 16),
