@@ -29,23 +29,19 @@ def call_to_jmp(elf):
     calls.reverse()
     for i in calls:
         r = Elf32_Rel(i.address+1, (ndx<<8)+1)
-        try:
-            push = '\x68%s' % string_at(pointer(c_uint(i.address+5+len(i))), 4)
-            elf.insert(i.address, push)
-            if not elf('.rel.text'):
-                elf.add_section('.rel.text', sh_type = 9, sh_info = 1, sh_entsize = sizeof(r),
-                        sh_link = (addressof(elf('.symtab')) - addressof(elf.shdrs)) / sizeof(Elf32_Shdr))
-            elf.add_entry(elf('.rel.text'), r, lambda r: r.r_offset)
-            text_offset = elf('.text').sh_offset
-            if elf[text_offset+i.address+len(push)] == '\xe8': # direct CALL
-                elf[text_offset+i.address+len(push)] = '\xe9'
-            elif elf[text_offset+i.address+len(push)] == '\xff': # indirect CALL
-                elf[text_offset+i.address+len(push)+1] = chr(ord(elf[text_offset+i.address+len(push)+1]) + 0x10)
-            else:
-                raise Exception('unexpected CALL: %s %s' % (i.mnemonic, i.op_str))
-        except AssertionError, ae:
-            print ' ', ae
-            continue
+        push = '\x68%s' % string_at(pointer(c_uint(i.address+5+len(i))), 4)
+        elf.insert(i.address, push)
+        if not elf('.rel.text'):
+            elf.add_section('.rel.text', sh_type = 9, sh_info = 1, sh_entsize = sizeof(r),
+                    sh_link = (addressof(elf('.symtab')) - addressof(elf.shdrs)) / sizeof(Elf32_Shdr))
+        elf.add_entry(elf('.rel.text'), r, lambda r: r.r_offset)
+        text_offset = elf('.text').sh_offset
+        if elf[text_offset+i.address+len(push)] == '\xe8': # direct CALL
+            elf[text_offset+i.address+len(push)] = '\xe9'
+        elif elf[text_offset+i.address+len(push)] == '\xff': # indirect CALL
+            elf[text_offset+i.address+len(push)+1] = chr(ord(elf[text_offset+i.address+len(push)+1]) + 0x10)
+        else:
+            raise Exception('unexpected CALL: %s %s' % (i.mnemonic, i.op_str))
     return elf
 
 def protect_switch(elf):
@@ -110,12 +106,8 @@ def ret_to_jmp(elf):
     print '  %d RETs found' % len(rets)
     rets.reverse()
     for r in rets:
-        try:
-            elf.insert(r, '\x90'*2)
-            elf[elf('.text').sh_offset+r:] = '\x59\xff\xe1'
-        except AssertionError, ae:
-            print ' ', ae
-            continue
+        elf.insert(r, '\x90'*2)
+        elf[elf('.text').sh_offset+r:] = '\x59\xff\xe1'
     return elf
 
 def add_nop(elf):
@@ -124,11 +116,7 @@ def add_nop(elf):
     print '  %d insns found' % len(iaddrs)
     iaddrs.reverse()
     for ia in iaddrs:
-        try:
-            elf.insert(ia, '\x90')
-        except AssertionError, ae:
-            print ' ', ae
-            break
+        elf.insert(ia, '\x90')
     return elf
 
 if __name__ == '__main__':
