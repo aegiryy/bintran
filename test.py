@@ -105,14 +105,14 @@ def protect_switch(elf):
     return elf
 
 def ret_to_jmp(elf):
-    '''rewrite "ret" with "add $4, %esp; jmp *-4(%esp);'''
+    '''rewrite "ret" with "pop %ecx; jmp *%ecx"'''
     rets = [i.address for i in filter(lambda i: i.bytes == '\xc3', elf.disasm())]
     print '  %d RETs found' % len(rets)
     rets.reverse()
     for r in rets:
         try:
-            elf.insert(r, '\x90'*6)
-            elf[elf('.text').sh_offset+r:] = '\x83\xc4\x04\xff\x64\x24\xfc'
+            elf.insert(r, '\x90'*2)
+            elf[elf('.text').sh_offset+r:] = '\x59\xff\xe1'
         except AssertionError, ae:
             print ' ', ae
             continue
