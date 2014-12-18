@@ -122,8 +122,18 @@ class Elf32(object):
             return (sh.sh_size/sizeof(ctype) * ctype).from_buffer(self.binary, sh.sh_offset)
         return None if ctype is None else []
 
+    def addr2off(self, addr):
+        assert self.ehdr.e_type == 2, 'not an executable file?'
+        for sh in self.shdrs:
+            if not sh.sh_addr or not sh.sh_offset:
+                continue
+            if sh.sh_addr <= addr < sh.sh_addr + sh.sh_size:
+                return addr - sh.sh_addr + sh.sh_offset
+        assert False, 'not a valid address?'
+
     def add_section(self, sh_name, sh_type=0, sh_flags=0, sh_link=0, sh_info=0, sh_addralign=1, sh_entsize=0):
         '''add an empty section'''
+        assert self.ehdr.e_type == 1, 'not an object file?'
         stndx = self('.shstrtab').sh_size
         # add section name into shstrtab
         for c in '%s\x00' % sh_name:
@@ -151,6 +161,7 @@ class Elf32(object):
 
     def add_entry(self, sh, entry, sort_key=None):
         '''add an entry into a section (e.g., relocation section)'''
+        assert self.ehdr.e_type == 1, 'not an object file?'
         # update later sections
         for s in self.shdrs:
             if s.sh_offset <= sh.sh_offset:
