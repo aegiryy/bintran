@@ -28,7 +28,7 @@ def cfi_2(elf):
             retabsz = s.st_size
             break
     else:
-        raise Exception('ret_table not found')
+        assert False, 'ret_table not present?'
     retabndx = 0
     insns = elf.disasm()
     print '  %d CALLs found' % len(filter(lambda i: i.bytes == '\x68\xef\xbe\xad\xde', insns))
@@ -60,7 +60,7 @@ def cfi_1(elf):
         elif elf[text_offset+i.address+len(push)] == '\xff': # indirect CALL
             elf[text_offset+i.address+len(push)+1] = chr(ord(elf[text_offset+i.address+len(push)+1]) + 0x10)
         else:
-            raise Exception('unexpected CALL: %s %s' % (i.mnemonic, i.op_str))
+            assert False, 'unexpected CALL? %s %s' % (i.mnemonic, i.op_str)
     # handle RETs (REPZ RETs)
     rets = filter(lambda i: i.bytes == '\xc3' or i.bytes == '\xf3\xc3', elf.disasm())
     print '  %d RETs found' % len(rets)
@@ -96,7 +96,7 @@ def call_to_jmp(elf):
         elif elf[text_offset+i.address+len(push)] == '\xff': # indirect CALL
             elf[text_offset+i.address+len(push)+1] = chr(ord(elf[text_offset+i.address+len(push)+1]) + 0x10)
         else:
-            raise Exception('unexpected CALL: %s %s' % (i.mnemonic, i.op_str))
+            assert False, 'unexpected CALL? %s %s' % (i.mnemonic, i.op_str)
     return elf
 
 def protect_switch(elf):
