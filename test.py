@@ -36,7 +36,7 @@ def cfi_2(elf):
     for i in range(len(insns)):
         if insns[i].bytes == '\x68\xef\xbe\xad\xde': # push $0xdeadbeef
             assert retabndx * 4 < retabsz
-            elf[elf.addr2off(retab)+retabndx*4:] = string_at(pointer(c_uint(insns[i+2].address)), 4)
+            elf[elf.addr2off(retab)+retabndx*4:] = string_at(pointer(c_uint(insns[i+1].address+len(insns[i+1]))), 4)
             elf[elf.addr2off(insns[i].address+1):] = string_at(pointer(c_uint(retabndx)), 4)
             retabndx += 1
         elif insns[i].bytes == '\xff\x24\x8d\xef\xbe\xad\xde': # jmp *$0xdeadbeef(,%ecx,4)
