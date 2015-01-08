@@ -142,8 +142,7 @@ class Elf32(object):
         for s in self.shdrs:
             if s.sh_offset <= self.ehdr.e_shoff:
                 continue
-            else:
-                s.sh_offset += sizeof(Elf32_Shdr)
+            s.sh_offset += sizeof(Elf32_Shdr)
         # figure out offset for the new section
         last_shdr = max(self.shdrs, key=lambda sh: sh.sh_offset)
         assert last_shdr.sh_size > 0, 'continuously adding empty sections is not allowed'
