@@ -2,7 +2,7 @@ Binary Transformer
 ==================
 
 ## What is BT ##
-BT helps rewrite ELF32 object files in the following ways:
+BT is a static binary rewriting engine that can
   * insert new instructions at arbitrary location
   * modify existing instructions
   * create new sections with precise control
