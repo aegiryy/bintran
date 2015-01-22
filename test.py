@@ -2,7 +2,7 @@
 import sys
 import os
 import re
-from bintran import Elf32, Elf32_Rel, Elf32_Sym, Elf32_Shdr
+from bintran import Elf32, Elf32_Rel, Elf32_Sym, Elf32_Shdr, assemble
 from uuid import uuid4
 from ctypes import *
 
@@ -31,7 +31,7 @@ def add_bound_check(elf):
         assert r, 'relent for jump table is not found'
         # find the symbol associated with the relent
         assert r.r_info & 0xff == 1, 'not an R_386_32 relent?'
-        s = syms[r.r_info>>8]
+        s = syms[r.r_info >> 8]
         assert s.st_info & 0xf == 3, 'not a section symbol?'
         # find SHT_REL section for jump table section (e.g., .rodata)
         sh = next((sh for sh in elf.shdrs if sh.sh_type == 9 and sh.sh_info == s.st_shndx), None)
@@ -49,18 +49,10 @@ def add_bound_check(elf):
             else:
                 break
         # generate instrumentation
-        nasm = ('cmp %s,%d\n'
-                'jae short $\n') % (reg, count)
-        tmpfile = '.%s' % uuid4()
-        with open(tmpfile, 'w') as f:
-            f.write(nasm)
-        os.system('nasm %s -o %s.o' % (tmpfile, tmpfile))
-        with open('%s.o' % tmpfile, 'rb') as f:
-            payload = f.read()
-        os.unlink(tmpfile)
-        os.unlink('%s.o' % tmpfile)
+        code = assemble(('cmp %s,%d\n'
+                         'jae short $\n') % (reg, count))
         # apply instrumentation
-        elf.insert(i.address, payload)
+        elf.insert(i.address, code)
     return elf
 
 def call_to_jmp(elf):
@@ -77,7 +69,7 @@ def call_to_jmp(elf):
         elf.insert(i.address, '\x68%s' % string_at(pointer(c_uint(i.address+5+len(i))), 4))
         # add a relent for the return address in "push"
         if not elf('.rel.text'):
-            symtab_shndx = (addressof(elf('.symtab'))-addressof(elf.shdrs)) / sizeof(Elf32_Shdr)
+            symtab_shndx = (addressof(elf('.symtab')) - addressof(elf.shdrs)) / sizeof(Elf32_Shdr)
             elf.add_section('.rel.text', sh_type=9, sh_info=1, sh_entsize=sizeof(Elf32_Rel), sh_link=symtab_shndx)
         elf.add_entry(elf('.rel.text'), Elf32_Rel(i.address+1, (tsndx<<8)+1), lambda r: r.r_offset)
         # rewrite "call" to "jmp"

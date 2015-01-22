@@ -329,3 +329,16 @@ class Elf32(object):
             pieces.append(binary[start:end] + insn)
         pieces.append(binary[_text.sh_offset+sjs[-1].address+len(sjs[-1]):])
         self.__init__(''.join(pieces))
+
+def assemble(nasm, bits=32):
+    '''assemble a nasm-format assembly code'''
+    tmpfile = '.%s' % uuid4()
+    with open(tmpfile, 'w') as f:
+        f.write('BITS %d\n%s' % (bits, nasm))
+    assert os.system('nasm %s -o %s.o' % (tmpfile, tmpfile)) == 0,\
+            'assembling error'
+    with open('%s.o' % tmpfile, 'rb') as f:
+        code = f.read()
+    os.unlink(tmpfile)
+    os.unlink('%s.o' % tmpfile)
+    return code
