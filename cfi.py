@@ -51,9 +51,8 @@ def cfi_1(elf):
             elf[call_offset+1] = chr(ord(elf[call_offset+1]) + 0x10)
         else:
             assert False, 'unexpected CALL? %s' % str(i)
-    # rewrite "rets" and "repz rets"
-    rets = filter(lambda i: i.mnemonic == 'ret' or
-            i.mnemonic == 'repz ret', elf.disasm())
+    # rewrite "ret" and "repz ret"
+    rets = filter(lambda i: i.mnemonic == 'ret' or i.op_str == 'ret', elf.disasm())
     print '  %d RETs found' % len(rets)
     rets.reverse()
     code = assemble(('pop ecx\n'
