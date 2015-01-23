@@ -14,6 +14,7 @@ def cfi_2(elf):
     insns = elf.disasm()
     pcode = assemble('push 0xdeadbeef')
     jcode = assemble('jmp dword [0xdeadbeef+ecx*4]')
+    ccode = assemble('cmp ecx, 0xdeadbeef')
     print '  %d CALLs found' % len(filter(lambda i: i.bytes == pcode, insns))
     print '  %d RETs found' % len(filter(lambda i: i.bytes == jcode, insns))
     for i in range(len(insns)):
@@ -25,6 +26,8 @@ def cfi_2(elf):
             rtndx += 1
         elif insns[i].bytes == jcode:
             elf[elf.addr2off(insns[i].address+3):] = string_at(pointer(c_uint(rtsym.st_value)), 4)
+        elif insns[i].bytes == ccode:
+            elf[elf.addr2off(insns[i].address+2):] = string_at(pointer(c_uint(rtsym.st_size/4)), 4)
     return elf
 
 def cfi_1(elf):
@@ -54,7 +57,7 @@ def cfi_1(elf):
     print '  %d RETs found' % len(rets)
     rets.reverse()
     code = assemble(('pop ecx\n'
-                     'cmp ecx, 0x800\n'
+                     'cmp ecx, 0xdeadbeef\n'
                      'jae near $\n'
                      'jmp dword [0xdeadbeef+ecx*4]\n'))
     for r in rets:
