@@ -58,6 +58,13 @@ def find_rets(insns, label):
         rets = sum([find_rets(insns, l) for l in FALLTHROUGH[label]], rets)
     return rets
 
+def verify_policy(ret_and_calls):
+    calls = set(sum(ret_and_calls.values(), []))
+    for c in calls:
+        call_sets = filter(lambda cs: c in cs, ret_and_calls.values())
+        assert len(set([cs.index(c) for cs in call_sets])) == 1,\
+                'a target must have the same index in all lists'
+
 def minix_policy(insns):
     '''this function is specific to a modified MINIX 3.2.1'''
     # handle system calls (i.e., do_*) first
@@ -80,22 +87,13 @@ def minix_policy(insns):
         assert '+' not in r.group(1)
         for r in find_rets(insns, r.group(1)):
             ret_and_calls[r] = ret_and_calls.get(r, []) + [c]
-    # if a call appears in multiple rets, make sure the index is the same
-    # Clang will have fast return: a -> b -> c
-    #                              a <------ +
-    # when b calling c is a tail call
+    # adjust the index of a target if it differs in multiple lists
     for c in calls:
         call_sets = filter(lambda cs: c in cs, ret_and_calls.values())
         if len(set([cs.index(c) for cs in call_sets])) > 1:
             for i in range(len(call_sets[1]), len(call_sets[0])):
                 call_sets[1].insert(0, 0)
-    # verify
-    for c in calls:
-        call_sets = filter(lambda cs: c in cs, ret_and_calls.values())
-        if len(set([cs.index(c) for cs in call_sets])) > 1:
-            print c, str(insns[c])
-            print call_sets
-            assert False
+    verify_policy(ret_and_calls)
     return ret_and_calls
 
 def cfi_minix(elf):
