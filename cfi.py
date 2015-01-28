@@ -106,6 +106,12 @@ def cfi_minix(elf):
     insns = disasm(sys.argv[2])
     ret_and_calls = minix_policy(insns)
     for r, cs in ret_and_calls.items():
+        if len(cs) == 1:
+            raddr = insns[cs[0]].address + len(insns[cs[0]])
+            fret = assemble(('org 0x%x\n'
+                             'jmp 0x%x\n') % (insns[r-2].address, raddr))
+            elf[elf.addr2off(insns[r-2].address):] = fret
+            continue
         for i in range(len(cs)):
             if not cs[i]:
                 continue # skip padding calls
