@@ -2,7 +2,7 @@
 import sys
 import os
 import re
-from bintran import Elf32, Elf32_Rel, Elf32_Sym, Elf32_Shdr, assemble
+from bintran import Elf32, Elf32_Rel, Elf32_Sym, Elf32_Shdr
 from uuid import uuid4
 from ctypes import *
 
@@ -12,47 +12,6 @@ def flatten(elf):
             i.op_str[0] != '*' and len(i) == 2, elf.disasm())
     print '  %d short JMPs' % len(sjs)
     elf.flatten()
-    return elf
-
-def add_bound_check(elf):
-    '''add checks before "jmp/call *table(,%reg,4)"'''
-    syms = elf('.symtab', Elf32_Sym)
-    insns = elf.disasm()
-    insns.reverse()
-    for i in insns:
-        # parse the instruction
-        r = re.search(r'\*(.*)\(,%(.*),4\)', i.op_str)
-        if not r:
-            continue
-        print '  %s' % str(i)
-        addend, reg = int(r.group(1), 16), r.group(2)
-        # find the relent of table base in the instruction
-        r = next((r for r in elf('.rel.text', Elf32_Rel) if r.r_offset == i.address + 3), None)
-        assert r, 'relent for jump table is not found'
-        # find the symbol associated with the relent
-        assert r.r_info & 0xff == 1, 'not an R_386_32 relent?'
-        s = syms[r.r_info >> 8]
-        assert s.st_info & 0xf == 3, 'not a section symbol?'
-        # find SHT_REL section for jump table section (e.g., .rodata)
-        sh = next((sh for sh in elf.shdrs if sh.sh_type == 9 and sh.sh_info == s.st_shndx), None)
-        assert sh, 'SHT_REL for jump table section is not found'
-        # count the number of jump table entries
-        rels = (sh.sh_size/sizeof(Elf32_Rel) * Elf32_Rel).from_buffer(elf.binary, sh.sh_offset)
-        count = 0
-        marker = addend
-        for r in rels:
-            if r.r_offset < marker:
-                continue
-            if r.r_offset == marker:
-                count += 1
-                marker += 4
-            else:
-                break
-        # generate instrumentation
-        code = assemble(('cmp %s,%d\n'
-                         'jae short $\n') % (reg, count))
-        # apply instrumentation
-        elf.insert(i.address, code)
     return elf
 
 def call_to_jmp(elf):
@@ -105,7 +64,6 @@ if __name__ == '__main__':
     if len(sys.argv) < 3:
         print ('usage: test.py [option+option+..] xxx.o\n'
                '  flatten: rewrite all short JMPs to near JMPs\n'
-               '  add_bound_check: add check before jump table indexing\n'
                '  call_to_jmp: rewrite CALL to PUSH and JMP\n'
                '  ret_to_jmp: rewrite RET to POP and JMP\n'
                '  add_nop: add NOP after every instruction')
