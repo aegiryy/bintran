@@ -18,11 +18,7 @@ between every two instructions.
     from bintran import Elf32
 
     def add_nop(elf):
-        iaddrs = [i.address for i in elf.disasm()]
-        print '  %d insns found' % len(iaddrs)
-        iaddrs.reverse()
-        for ia in iaddrs:
-            elf.insert(ia, '\x90')
+        elf.insert(*[(i.address, '\x90') for i in elf.disasm()])
         return elf
     
     if __name__ == '__main__':
