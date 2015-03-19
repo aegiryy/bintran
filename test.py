@@ -16,29 +16,42 @@ def flatten(elf):
 
 def call_to_jmp(elf):
     '''rewrite CALL to PUSH + JMP'''
-    syms = elf('.symtab', Elf32_Sym)
-    # find symbol index of .text section
-    tsndx = next((i for i in range(len(syms)) if syms[i].st_info & 0xf == 3 and syms[i].st_shndx == 1), -1)
-    assert tsndx >= 0, 'symbol of .text section is not found'
     calls = filter(lambda i: i.mnemonic == 'call', elf.disasm())
     print '  %d CALLs found' % len(calls)
-    calls.reverse()
-    for i in calls:
-        # insert "push addr"
-        elf.insert((i.address, '\x68%s' % string_at(pointer(c_uint(i.address+5+len(i))), 4)))
-        # add a relent for the return address in "push"
-        if not elf('.rel.text'):
-            symtab_shndx = (addressof(elf('.symtab')) - addressof(elf.shdrs)) / sizeof(Elf32_Shdr)
-            elf.add_section('.rel.text', sh_type=9, sh_info=1, sh_entsize=sizeof(Elf32_Rel), sh_link=symtab_shndx)
-        elf.add_entry(elf('.rel.text'), Elf32_Rel(i.address+1, (tsndx<<8)+1), lambda r: r.r_offset)
-        # rewrite "call" to "jmp"
-        call_offset = elf('.text').sh_offset + i.address + 5
-        if elf[call_offset] == '\xe8': # direct "call"
-            elf[call_offset] = '\xe9'
-        elif elf[call_offset] == '\xff': # indirect "call"
-            elf[call_offset+1] = chr(ord(elf[call_offset+1]) + 0x10)
-        else:
-            assert False, 'what is the call? %s' % str(i)
+    if not calls:
+        return elf
+    # rewrite CALL to JMP
+    # see http://pdos.csail.mit.edu/6.828/2012/readings/i386/CALL.htm
+    # and http://pdos.csail.mit.edu/6.828/2012/readings/i386/JMP.htm
+    # for conversion rules
+    for c in calls:
+        off = elf('.text').sh_offset + c.address
+        if elf[off] == '\xe8': # direct CALL
+            elf[off] = '\xe9'
+        else: # indirect CALL
+            assert elf[off] == '\xff', 'what is the call? %s' % str(c)
+            elf[off+1] = chr(ord(elf[off+1])+0x10)
+    # add PUSH and use deadbeef to identify call sites
+    elf.insert(*[(c.address, '\x68\xef\xbe\xad\xde') for c in calls])
+    # update insns
+    insns = elf.disasm()
+    # create .rel.text if not exists
+    tshndx = (addressof(elf('.text')) - addressof(elf.shdrs)) / sizeof(Elf32_Shdr)
+    if not elf('.rel.text'):
+        stshndx = (addressof(elf('.symtab')) - addressof(elf.shdrs)) / sizeof(Elf32_Shdr)
+        elf.add_section('.rel.text', sh_type=9, sh_info=tshndx, \
+                sh_entsize=sizeof(Elf32_Rel), sh_link=stshndx)
+    # get the index of symbol representing .text section
+    syms = elf('.symtab', Elf32_Sym)
+    sndx = next((i for i in range(len(syms)) if \
+            syms[i].st_info & 0xf == 3 and syms[i].st_shndx == tshndx), -1)
+    assert sndx >= 0, 'symbol representing .text section is not found'
+    # update PUSH operand and add relocation entry
+    for i in range(len(insns)):
+        if insns[i].bytes != '\x68\xef\xbe\xad\xde':
+            continue
+        elf.add_entry(elf('.rel.text'), Elf32_Rel(insns[i].address+1, (sndx<<8)+1), lambda r: r.r_offset)
+        elf[elf('.text').sh_offset+insns[i].address+1, c_uint] = insns[i+1].address + len(insns[i+1])
     return elf
 
 def ret_to_jmp(elf):
