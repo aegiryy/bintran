@@ -7,7 +7,7 @@ from uuid import uuid4
 from ctypes import *
 
 def flatten(elf):
-    '''rewrite short "jmp" to near "jmp"'''
+    '''rewrite short JMP to near JMP'''
     sjs = filter(lambda i: i.mnemonic.startswith('j') and \
             i.op_str[0] != '*' and len(i) == 2, elf.disasm())
     print '  %d short JMPs' % len(sjs)
@@ -15,7 +15,7 @@ def flatten(elf):
     return elf
 
 def call_to_jmp(elf):
-    '''rewrite "call dest" to "push addr; jmp dest"'''
+    '''rewrite CALL to PUSH + JMP'''
     syms = elf('.symtab', Elf32_Sym)
     # find symbol index of .text section
     tsndx = next((i for i in range(len(syms)) if syms[i].st_info & 0xf == 3 and syms[i].st_shndx == 1), -1)
@@ -25,7 +25,7 @@ def call_to_jmp(elf):
     calls.reverse()
     for i in calls:
         # insert "push addr"
-        elf.insert(i.address, '\x68%s' % string_at(pointer(c_uint(i.address+5+len(i))), 4))
+        elf.insert((i.address, '\x68%s' % string_at(pointer(c_uint(i.address+5+len(i))), 4)))
         # add a relent for the return address in "push"
         if not elf('.rel.text'):
             symtab_shndx = (addressof(elf('.symtab')) - addressof(elf.shdrs)) / sizeof(Elf32_Shdr)
@@ -42,22 +42,19 @@ def call_to_jmp(elf):
     return elf
 
 def ret_to_jmp(elf):
-    '''rewrite "ret" to "pop %ecx; jmp *%ecx"'''
+    '''rewrite RET to POP + JMP'''
     rets = [i.address for i in filter(lambda i: i.bytes == '\xc3', elf.disasm())]
     print '  %d RETs found' % len(rets)
-    rets.reverse()
     for r in rets:
-        elf.insert(r, '\x90'*2)
-        elf[elf('.text').sh_offset+r:] = '\x59\xff\xe1'
+        elf[elf('.text').sh_offset+r] = '\xe1'
+    elf.insert(*[(r, '\x59\xff') for r in rets])
     return elf
 
 def add_nop(elf):
-    '''add "nop" between every two instruction'''
+    '''add NOP between every two instruction'''
     iaddrs = [i.address for i in elf.disasm()]
     print '  %d insns found' % len(iaddrs)
-    iaddrs.reverse()
-    for ia in iaddrs:
-        elf.insert(ia, '\x90')
+    elf.insert(*[(ia, '\x90') for ia in iaddrs])
     return elf
 
 if __name__ == '__main__':

@@ -264,14 +264,20 @@ class Elf32(object):
                 continue
             sh.sh_offset += more
 
-    def insert(self, off_in_text, payload=''):
-        '''insert a sequence of instructions at off_in_text'''
+    def insert(self, *off_and_payload):
+        '''insert multiple sequences of instructions specified by
+        off_and_payload = [(off_in_text, payload), ...]'''
         assert self.ehdr.e_type == 1, 'not an object file?'
+        if not off_and_payload:
+            return
+        off_and_payload = sorted(off_and_payload)
         _text = self('.text')
         assert _text, 'no .text section?'
-        new_iaddr = lambda iaddr: iaddr + (len(payload) if iaddr >= off_in_text else 0)
+        new_iaddr = lambda iaddr: iaddr + sum([len(payload) if iaddr >= off else 0\
+                for off, payload in off_and_payload])
         # a branch to off_in_text will now jump to the inserted instructions
-        new_target = lambda tgt: tgt + (len(payload) if tgt > off_in_text else 0)
+        new_target = lambda tgt: tgt + sum([len(payload) if tgt > off else 0\
+                for off, payload in off_and_payload])
         # update .text section in place
         bups = self._branch_updates(new_iaddr, new_target)
         overflows = filter(lambda b: not -1 << sizeof(b['ctype']) * 8 - 1 <=
@@ -284,9 +290,13 @@ class Elf32(object):
         self._update_misc(new_iaddr, new_target)
         # update binary
         binary = str(self)
-        self.__init__(''.join((binary[:_text.sh_offset+off_in_text],
-                               payload,
-                               binary[_text.sh_offset+off_in_text:])))
+        pieces = []
+        for i in range(len(off_and_payload)):
+            start = 0 if i == 0 else _text.sh_offset + off_and_payload[i-1][0]
+            end = _text.sh_offset + off_and_payload[i][0]
+            pieces.append(binary[start:end]+off_and_payload[i][1])
+        pieces.append(binary[_text.sh_offset+off_and_payload[-1][0]:])
+        self.__init__(''.join(pieces))
 
     def flatten(self):
         '''convert all short JMPs to near JMPs'''
