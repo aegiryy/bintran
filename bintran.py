@@ -230,6 +230,8 @@ class Elf32(object):
     def _update_misc(self, new_iaddr, new_target):
         '''update relocations, text symbols, ELF header and section headers'''
         syms = self('.symtab', Elf32_Sym)
+        _text = self('.text')
+        tshndx = (addressof(_text) - addressof(self.shdrs)) / sizeof(Elf32_Shdr)
         # update relocation entries
         for sh in self.shdrs:
             if sh.sh_type != 9: # SHT_REL
@@ -237,19 +239,20 @@ class Elf32(object):
             rels = (sh.sh_size/sizeof(Elf32_Rel) * Elf32_Rel).from_buffer(self.binary, sh.sh_offset)
             for r in rels:
                 s = syms[r.r_info>>8]
-                if r.r_info & 0xff == 1 and s.st_info & 0xf == 3 and s.st_shndx == 1: # R_386_32 and .text
+                # update relocation entries referring .text section (R_386_32 and .text)
+                if r.r_info & 0xff == 1 and s.st_info & 0xf == 3 and s.st_shndx == tshndx:
                     addend = self[self.shdrs[sh.sh_info].sh_offset+r.r_offset, c_uint]
                     self[self.shdrs[sh.sh_info].sh_offset+r.r_offset, c_uint] = new_target(addend)
-                if sh.sh_info == 1: # update offsets of relocation entries in .text section
+                # update offsets of relocation entries of .text section
+                if sh.sh_info == tshndx:
                     r.r_offset = new_iaddr(r.r_offset)
         # update symbols of .text section
         for s in syms:
-            if s.st_shndx != 1: # [1] .text
+            if s.st_shndx != tshndx:
                 continue
             s.st_value = new_target(s.st_value)
             s.st_size = 0
         # calculate number of additional bytes
-        _text = self('.text')
         more = new_iaddr(_text.sh_size) - _text.sh_size
         # update section header table offset
         self.ehdr.e_shoff += more
