@@ -273,10 +273,10 @@ class Elf32(object):
         off_and_payload = sorted(off_and_payload)
         _text = self('.text')
         assert _text, 'no .text section?'
-        new_iaddr = lambda iaddr: iaddr + sum([len(payload) if iaddr >= off else 0\
+        new_iaddr = lambda iaddr: iaddr + sum([len(payload) if iaddr >= off else 0 \
                 for off, payload in off_and_payload])
         # a branch to off_in_text will now jump to the inserted instructions
-        new_target = lambda tgt: tgt + sum([len(payload) if tgt > off else 0\
+        new_target = lambda tgt: tgt + sum([len(payload) if tgt > off else 0 \
                 for off, payload in off_and_payload])
         # update .text section in place
         bups = self._branch_updates(new_iaddr, new_target)
@@ -308,7 +308,7 @@ class Elf32(object):
                 i.op_str[0] != '*' and len(i) == 2, self.disasm())
         if not sjs:
             return
-        assert not filter(lambda i: i.mnemonic in ('jcxz', 'jecxz'), sjs),\
+        assert not filter(lambda i: i.mnemonic in ('jcxz', 'jecxz'), sjs), \
                 'JCXZ and JECXZ are unsupported' # no way to flatten them
         # for computing new instruction address according to JMP opcodes
         new_iaddr = lambda addr: addr + sum([0 if j.address >= addr else \
@@ -318,7 +318,7 @@ class Elf32(object):
         # and http://pdos.csail.mit.edu/6.828/2012/readings/i386/Jcc.htm
         # for conversion rules
         new_insn = lambda i, new_off: ('\xe9' if i.bytes[0] == '\xeb' else \
-                ('\x0f%s' % chr(ord(i.bytes[0])+0x10)))\
+                ('\x0f%s' % chr(ord(i.bytes[0])+0x10))) \
                 + string_at(pointer(c_int(new_off)), 4)
         # update .text section
         ups = []
@@ -348,7 +348,7 @@ def assemble(nasm, bits=32):
     tmpfile = '.%s' % uuid4()
     with open(tmpfile, 'w') as f:
         f.write('BITS %d\n%s' % (bits, nasm))
-    assert os.system('nasm %s -o %s.o' % (tmpfile, tmpfile)) == 0,\
+    assert os.system('nasm %s -o %s.o' % (tmpfile, tmpfile)) == 0, \
             'assembling error'
     with open('%s.o' % tmpfile, 'rb') as f:
         code = f.read()
