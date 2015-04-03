@@ -3,7 +3,6 @@ import sys
 import os
 import re
 from bintran import Elf32, Elf32_Rel, Elf32_Sym, Elf32_Shdr
-from uuid import uuid4
 from ctypes import *
 
 def flatten(elf):

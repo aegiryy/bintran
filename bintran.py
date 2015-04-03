@@ -22,6 +22,7 @@
 import os
 import sys
 import re
+import struct
 from uuid import uuid4
 from ctypes import *
 
@@ -105,7 +106,7 @@ class Elf32(object):
     def __getslice__(self, offset, end):
         assert 0 <= offset < len(self) and offset < end
         length = -1 if end == sys.maxint else min(end-offset, len(self)-offset)
-        return string_at(c_char_p(str(self.binary[offset:])), length)
+        return string_at(str(self.binary[offset:]), length)
 
     def __setslice__(self, offset, end, value):
         assert 0 <= offset < len(self) and offset < end
@@ -318,8 +319,7 @@ class Elf32(object):
         # and http://pdos.csail.mit.edu/6.828/2012/readings/i386/Jcc.htm
         # for conversion rules
         new_insn = lambda i, new_off: ('\xe9' if i.bytes[0] == '\xeb' else \
-                ('\x0f%s' % chr(ord(i.bytes[0])+0x10))) \
-                + string_at(pointer(c_int(new_off)), 4)
+                ('\x0f%s' % chr(ord(i.bytes[0])+0x10))) + struct.pack('i', new_off)
         # update .text section
         ups = []
         for bu in self._branch_updates(new_iaddr, new_iaddr):
