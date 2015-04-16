@@ -83,35 +83,29 @@ class Elf32_Rel(Structure):
             ('r_offset', c_uint),
             ('r_info', c_uint)]
 
-class Elf32(object):
+class Elf32(bytearray):
     def __init__(self, binary):
-        self.binary = bytearray(binary)
-        self.ehdr = Elf32_Ehdr.from_buffer(self.binary)
-        self.shdrs = (self.ehdr.e_shnum * Elf32_Shdr).from_buffer(self.binary, self.ehdr.e_shoff)
-
-    def __str__(self):
-        return str(self.binary)
-
-    def __len__(self):
-        return len(self.binary)
+        bytearray.__init__(self, binary)
+        self.ehdr = Elf32_Ehdr.from_buffer(self)
+        self.shdrs = (self.ehdr.e_shnum*Elf32_Shdr).from_buffer(self, self.ehdr.e_shoff)
 
     def __setitem__(self, q, value):
         offset, ctype = q if type(q) is tuple else (q, c_char)
-        ctype.from_buffer(self.binary, offset).value = value
+        ctype.from_buffer(self, offset).value = value
 
     def __getitem__(self, q):
         offset, ctype = q if type(q) is tuple else (q, c_char)
-        return ctype.from_buffer(self.binary, offset).value
+        return ctype.from_buffer(self, offset).value
 
     def __getslice__(self, offset, end):
         assert 0 <= offset < len(self) and offset < end
         length = -1 if end == sys.maxint else min(end-offset, len(self)-offset)
-        return string_at(str(self.binary[offset:]), length)
+        return string_at((0*c_char).from_buffer(self, offset), length)
 
     def __setslice__(self, offset, end, value):
-        assert 0 <= offset < len(self) and offset < end
-        end = min(end, len(self), offset+len(value))
-        self.binary[offset:end] = value[:end-offset]
+        assert end == sys.maxint
+        assert 0 <= offset < offset + len(value) <= len(self)
+        (len(value)*c_char).from_buffer(self, offset).value = value
 
     def __call__(self, name, ctype=None):
         '''return section header or section if its type is specified'''
@@ -120,7 +114,7 @@ class Elf32(object):
                 continue
             if ctype is None:
                 return sh
-            return (sh.sh_size/sizeof(ctype) * ctype).from_buffer(self.binary, sh.sh_offset)
+            return (sh.sh_size/sizeof(ctype)*ctype).from_buffer(self, sh.sh_offset)
         return None if ctype is None else []
 
     def addr2off(self, addr):
@@ -171,7 +165,7 @@ class Elf32(object):
         if self.ehdr.e_shoff > sh.sh_offset:
             self.ehdr.e_shoff += sizeof(entry)
         # load entries
-        entries = (sh.sh_size/sizeof(entry) * type(entry)).from_buffer(self.binary, sh.sh_offset)
+        entries = (sh.sh_size/sizeof(entry)*type(entry)).from_buffer(self, sh.sh_offset)
         entries = list(entries)
         entries.append(entry)
         # sort if required
@@ -237,7 +231,7 @@ class Elf32(object):
         for sh in self.shdrs:
             if sh.sh_type != 9: # SHT_REL
                 continue
-            rels = (sh.sh_size/sizeof(Elf32_Rel) * Elf32_Rel).from_buffer(self.binary, sh.sh_offset)
+            rels = (sh.sh_size/sizeof(Elf32_Rel)*Elf32_Rel).from_buffer(self, sh.sh_offset)
             for r in rels:
                 s = syms[r.r_info>>8]
                 # update relocation entries referring .text section (R_386_32 and .text)
