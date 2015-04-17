@@ -149,26 +149,31 @@ class Elf32(bytearray):
         # append section name to shstrtab
         self.append(self.shdrs[self.ehdr.e_shstrndx], '%s\x00' % name)
 
-    def append(self, sh, data):
-        '''append arbitrary data to the specified section'''
+    def replace(self, sh, data):
+        '''replace the specified section with data'''
         assert self.ehdr.e_type == 1, 'not an object file?'
         data = str(buffer(data))
-        # update later sections
+        # update sh_size
+        orig_size = sh.sh_size
+        sh.sh_size = len(data)
+        # update other sections
         for s in self.shdrs:
             if s.sh_offset <= sh.sh_offset:
                 continue
-            s.sh_offset += len(data)
+            s.sh_offset += sh.sh_size - orig_size
         # update section header table offset
         if self.ehdr.e_shoff > sh.sh_offset:
-            self.ehdr.e_shoff += len(data)
-        # update sh
-        sh.sh_size += len(data)
-        # do it
-        sep = sh.sh_offset + sh.sh_size - len(data)
+            self.ehdr.e_shoff += sh.sh_size - orig_size
+        # replace binary
         binary = str(self)
-        self.__init__(''.join((binary[:sep],
-                              data,
-                              binary[sep:])))
+        self.__init__(''.join((binary[:sh.sh_offset],
+                               data,
+                               binary[sh.sh_offset+orig_size:])))
+
+    def append(self, sh, data):
+        '''append arbitrary data to the specified section'''
+        data = buffer(self, sh.sh_offset, sh.sh_size) + buffer(data)
+        self.replace(sh, data)
 
     def disasm(self):
         '''disassemble the current binary'''
