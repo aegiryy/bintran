@@ -101,11 +101,11 @@ class Elf32(bytearray):
 
     def __getslice__(self, offset, end):
         length = min(end, len(self)) - offset
-        return (length*c_char).from_buffer(self, offset).value
+        return (length*c_char).from_buffer(self, offset).raw
 
     def __setslice__(self, offset, end, value):
         assert end == sys.maxint
-        (len(value)*c_char).from_buffer(self, offset).value = value
+        (len(value)*c_char).from_buffer(self, offset).raw = value
 
     def __call__(self, name, ctype=None):
         '''return section header or section if its type is specified'''
