@@ -133,7 +133,6 @@ class Elf32(bytearray):
             sh.sh_offset += sizeof(Elf32_Shdr)
         # figure out offset for the new section
         last_shdr = max(self.shdrs, key=lambda sh: sh.sh_offset)
-        assert last_shdr.sh_size > 0, 'continuously adding empty sections?'
         sh_offset = last_shdr.sh_offset + last_shdr.sh_size
         # create section header
         sh = Elf32_Shdr(sizeof(self.shstrtab), sh_type, sh_flags, 0, \
@@ -158,8 +157,12 @@ class Elf32(bytearray):
         sh.sh_size = len(data)
         # update other sections
         for s in self.shdrs:
-            if s.sh_offset <= sh.sh_offset:
-                continue
+            if s.sh_name == sh.sh_name:
+                continue # skip the same one
+            if s.sh_offset < sh.sh_offset:
+                continue # skip earlier ones
+            if s.sh_offset == sh.sh_offset and not s.sh_size:
+                continue # skip parallel empty ones
             s.sh_offset += sh.sh_size - orig_size
         # update section header table offset
         if self.ehdr.e_shoff > sh.sh_offset:

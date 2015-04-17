@@ -84,4 +84,4 @@ if __name__ == '__main__':
         for t in tests:
             elf = t(elf)
         with open(objfile, 'wb') as f:
-            f.write(str(elf))
+            f.write(elf)
