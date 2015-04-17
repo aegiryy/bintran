@@ -88,6 +88,8 @@ class Elf32(bytearray):
         bytearray.__init__(self, binary)
         self.ehdr = Elf32_Ehdr.from_buffer(self)
         self.shdrs = (self.ehdr.e_shnum*Elf32_Shdr).from_buffer(self, self.ehdr.e_shoff)
+        _shstrtab = self.shdrs[self.ehdr.e_shstrndx]
+        self.shstrtab = (_shstrtab.sh_size*c_char).from_buffer(self, _shstrtab.sh_offset)
 
     def __setitem__(self, q, value):
         offset, ctype = q if type(q) is tuple else (q, c_char)
@@ -98,24 +100,21 @@ class Elf32(bytearray):
         return ctype.from_buffer(self, offset).value
 
     def __getslice__(self, offset, end):
-        assert 0 <= offset < len(self) and offset < end
-        length = -1 if end == sys.maxint else min(end-offset, len(self)-offset)
-        return string_at((0*c_char).from_buffer(self, offset), length)
+        length = min(end, len(self)) - offset
+        return (length*c_char).from_buffer(self, offset).value
 
     def __setslice__(self, offset, end, value):
         assert end == sys.maxint
-        assert 0 <= offset < offset + len(value) <= len(self)
         (len(value)*c_char).from_buffer(self, offset).value = value
 
     def __call__(self, name, ctype=None):
         '''return section header or section if its type is specified'''
-        for sh in self.shdrs:
-            if self[self.shdrs[self.ehdr.e_shstrndx].sh_offset+sh.sh_name:] != name:
-                continue
-            if ctype is None:
-                return sh
-            return (sh.sh_size/sizeof(ctype)*ctype).from_buffer(self, sh.sh_offset)
-        return None if ctype is None else []
+        sh = next((sh for sh in self.shdrs \
+                if string_at(self.shstrtab[sh.sh_name:]) == name), None)
+        if not sh:
+            return [] if ctype else None
+        return sh if not ctype else \
+                (sh.sh_size/sizeof(ctype)*ctype).from_buffer(self, sh.sh_offset)
 
     def addr2off(self, addr):
         assert self.ehdr.e_type == 2, 'not an executable file?'
