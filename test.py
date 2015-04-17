@@ -2,6 +2,7 @@
 import sys
 import os
 import re
+import struct
 from bintran import Elf32, Elf32_Rel, Elf32_Sym, Elf32_Shdr
 from ctypes import *
 
@@ -19,6 +20,12 @@ def call_to_jmp(elf):
     print '  %d CALLs found' % len(calls)
     if not calls:
         return elf
+    # prepend PUSH
+    elf.insert(*[(calls[i].address, '\x68%s' % \
+            struct.pack('i', 5*(i+1)+calls[i].address+len(calls[i])))
+            for i in range(len(calls))])
+    # update CALLs
+    calls = filter(lambda i: i.mnemonic == 'call', elf.disasm())
     # rewrite CALL to JMP
     # see http://pdos.csail.mit.edu/6.828/2012/readings/i386/CALL.htm
     # and http://pdos.csail.mit.edu/6.828/2012/readings/i386/JMP.htm
@@ -30,27 +37,19 @@ def call_to_jmp(elf):
         else: # indirect CALL
             assert elf[off] == '\xff', 'what is the call? %s' % str(c)
             elf[off+1] = chr(ord(elf[off+1])+0x10)
-    # add PUSH and use deadbeef to identify call sites
-    elf.insert(*[(c.address, '\x68\xef\xbe\xad\xde') for c in calls])
-    # update insns
-    insns = elf.disasm()
     # create .rel.text if not exists
     tshndx = (addressof(elf('.text')) - addressof(elf.shdrs)) / sizeof(Elf32_Shdr)
     if not elf('.rel.text'):
         stshndx = (addressof(elf('.symtab')) - addressof(elf.shdrs)) / sizeof(Elf32_Shdr)
-        elf.add_section('.rel.text', sh_type=9, sh_info=tshndx, \
+        elf.new('.rel.text', sh_type=9, sh_info=tshndx, \
                 sh_entsize=sizeof(Elf32_Rel), sh_link=stshndx)
     # get the index of symbol representing .text section
     syms = elf('.symtab', Elf32_Sym)
-    sndx = next((i for i in range(len(syms)) if \
-            syms[i].st_info & 0xf == 3 and syms[i].st_shndx == tshndx), -1)
-    assert sndx >= 0, 'symbol representing .text section is not found'
-    # update PUSH operand and add relocation entry
-    for i in range(len(insns)):
-        if insns[i].bytes != '\x68\xef\xbe\xad\xde':
-            continue
-        elf.add_entry(elf('.rel.text'), Elf32_Rel(insns[i].address+1, (sndx<<8)+1), lambda r: r.r_offset)
-        elf[elf('.text').sh_offset+insns[i].address+1, c_uint] = insns[i+1].address + len(insns[i+1])
+    sndx = next(i for i in range(len(syms)) if \
+            syms[i].st_info & 0xf == 3 and syms[i].st_shndx == tshndx)
+    # prepare relocations
+    rels = [Elf32_Rel(c.address-4, (sndx<<8)+1) for c in calls]
+    elf.append(elf('.rel.text'), (len(rels)*Elf32_Rel)(*rels))
     return elf
 
 def ret_to_jmp(elf):

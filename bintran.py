@@ -118,66 +118,57 @@ class Elf32(bytearray):
 
     def addr2off(self, addr):
         assert self.ehdr.e_type == 2, 'not an executable file?'
-        for sh in self.shdrs:
-            if not sh.sh_addr or not sh.sh_offset:
-                continue
-            if sh.sh_addr <= addr < sh.sh_addr + sh.sh_size:
-                return addr - sh.sh_addr + sh.sh_offset
-        assert False, 'not a valid address?'
+        sh = next(sh for sh in self.shdrs \
+                if 0 < sh.sh_addr <= addr < sh.sh_addr + sh.sh_size)
+        return addr - sh.sh_addr + sh.sh_offset
 
-    def add_section(self, sh_name, sh_type=0, sh_flags=0, sh_link=0, sh_info=0, sh_addralign=1, sh_entsize=0):
-        '''add an empty section'''
+    def new(self, name, sh_type=0, sh_flags=0, sh_link=0, sh_info=0, \
+            sh_addralign=1, sh_entsize=0):
+        '''create an empty section'''
         assert self.ehdr.e_type == 1, 'not an object file?'
-        stndx = self('.shstrtab').sh_size
-        # add section name into shstrtab
-        for c in '%s\x00' % sh_name:
-            self.add_entry(self('.shstrtab'), c_char(c))
         # update later sections
-        for s in self.shdrs:
-            if s.sh_offset <= self.ehdr.e_shoff:
+        for sh in self.shdrs:
+            if sh.sh_offset <= self.ehdr.e_shoff:
                 continue
-            s.sh_offset += sizeof(Elf32_Shdr)
+            sh.sh_offset += sizeof(Elf32_Shdr)
         # figure out offset for the new section
         last_shdr = max(self.shdrs, key=lambda sh: sh.sh_offset)
-        assert last_shdr.sh_size > 0, 'continuously adding empty sections is not allowed'
+        assert last_shdr.sh_size > 0, 'continuously adding empty sections?'
         sh_offset = last_shdr.sh_offset + last_shdr.sh_size
-        # create section header (name, type, flags, addr, offset, size, link, info, addralign, entsize)
-        sh = Elf32_Shdr(stndx, sh_type, sh_flags, 0, sh_offset, 0, sh_link, sh_info, sh_addralign, sh_entsize)
+        # create section header
+        sh = Elf32_Shdr(sizeof(self.shstrtab), sh_type, sh_flags, 0, \
+                sh_offset, 0, sh_link, sh_info, sh_addralign, sh_entsize)
         # update elf header
         self.ehdr.e_shnum += 1
         # prepare insertions
         sep = self.ehdr.e_shoff + self.ehdr.e_shentsize * (self.ehdr.e_shnum - 1)
         binary = str(self)
         self.__init__(''.join((binary[:sep],
-                               string_at(pointer(sh), sizeof(sh)),
+                               str(buffer(sh)),
                                binary[sep:])))
+        # append section name to shstrtab
+        self.append(self.shdrs[self.ehdr.e_shstrndx], '%s\x00' % name)
 
-    def add_entry(self, sh, entry, sort_key=None):
-        '''add an entry into a section (e.g., relocation section)'''
+    def append(self, sh, data):
+        '''append arbitrary data to the specified section'''
         assert self.ehdr.e_type == 1, 'not an object file?'
+        data = str(buffer(data))
         # update later sections
         for s in self.shdrs:
             if s.sh_offset <= sh.sh_offset:
                 continue
-            s.sh_offset += sizeof(entry)
+            s.sh_offset += len(data)
         # update section header table offset
         if self.ehdr.e_shoff > sh.sh_offset:
-            self.ehdr.e_shoff += sizeof(entry)
-        # load entries
-        entries = (sh.sh_size/sizeof(entry)*type(entry)).from_buffer(self, sh.sh_offset)
-        entries = list(entries)
-        entries.append(entry)
-        # sort if required
-        if sort_key:
-            entries.sort(key=sort_key)
+            self.ehdr.e_shoff += len(data)
         # update sh
-        sh.sh_size += sizeof(entry)
+        sh.sh_size += len(data)
         # do it
-        entries = (len(entries) * type(entry))(*entries)
+        sep = sh.sh_offset + sh.sh_size - len(data)
         binary = str(self)
-        self.__init__(''.join((binary[:sh.sh_offset],
-                               string_at(entries, sizeof(entries)),
-                               binary[sh.sh_offset+sh.sh_size-sizeof(entry):])))
+        self.__init__(''.join((binary[:sep],
+                              data,
+                              binary[sep:])))
 
     def disasm(self):
         '''disassemble the current binary'''
