@@ -165,7 +165,7 @@ class Elf32(bytearray):
                 continue # skip parallel empty ones
             s.sh_offset += sh.sh_size - orig_size
         # update section header table offset
-        if self.ehdr.e_shoff > sh.sh_offset:
+        if self.ehdr.e_shoff >= sh.sh_offset:
             self.ehdr.e_shoff += sh.sh_size - orig_size
         # replace binary
         binary = str(self)
